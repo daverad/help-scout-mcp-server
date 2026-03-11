@@ -155,6 +155,28 @@ export const StructuredConversationFilterInputSchema = z.object({
   { message: 'Must use at least one unique field: assignedTo, folderId, customerIds, conversationNumber, or unique sorting. For content search, use comprehensiveConversationSearch.' }
 );
 
+// Write Operation Input Schemas
+export const CreateReplyInputSchema = z.object({
+  conversationId: z.string().min(1, 'conversationId is required'),
+  text: z.string().min(1, 'Reply text is required'),
+  customer: z.object({
+    email: z.string().email('Valid customer email is required'),
+  }),
+  draft: z.boolean().default(true),
+  cc: z.array(z.string().email('Each CC entry must be a valid email')).optional(),
+  bcc: z.array(z.string().email('Each BCC entry must be a valid email')).optional(),
+});
+
+export const UpdateConversationStatusInputSchema = z.object({
+  conversationId: z.string().min(1, 'conversationId is required'),
+  status: z.enum(['active', 'pending', 'closed']),
+});
+
+export const CreateNoteInputSchema = z.object({
+  conversationId: z.string().min(1, 'conversationId is required'),
+  text: z.string().min(1, 'Note text is required'),
+});
+
 // Response Types
 export const ServerTimeSchema = z.object({
   isoTime: z.string(),
@@ -178,5 +200,8 @@ export type GetThreadsInput = z.infer<typeof GetThreadsInputSchema>;
 export type GetConversationSummaryInput = z.infer<typeof GetConversationSummaryInputSchema>;
 export type AdvancedConversationSearchInput = z.infer<typeof AdvancedConversationSearchInputSchema>;
 export type MultiStatusConversationSearchInput = z.infer<typeof MultiStatusConversationSearchInputSchema>;
+export type CreateReplyInput = z.infer<typeof CreateReplyInputSchema>;
+export type UpdateConversationStatusInput = z.infer<typeof UpdateConversationStatusInputSchema>;
+export type CreateNoteInput = z.infer<typeof CreateNoteInputSchema>;
 export type ServerTime = z.infer<typeof ServerTimeSchema>;
 export type ApiError = z.infer<typeof ErrorSchema>;

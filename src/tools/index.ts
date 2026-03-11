@@ -55,6 +55,9 @@ import {
   AdvancedConversationSearchInputSchema,
   MultiStatusConversationSearchInputSchema,
   StructuredConversationFilterInputSchema,
+  CreateReplyInputSchema,
+  UpdateConversationStatusInputSchema,
+  CreateNoteInputSchema,
 } from '../schema/types.js';
 
 export class ToolHandler {
@@ -408,6 +411,87 @@ export class ToolHandler {
           },
         },
       },
+      // Write tools (require HELPSCOUT_ENABLE_WRITES=true)
+      ...(config.writes.enabled ? [
+        {
+          name: 'createReply',
+          description: 'Send a reply on an existing conversation. IMPORTANT: Defaults to draft mode (draft=true) so a human can review before sending. Set draft=false to send immediately — this sends a real email to the customer and CANNOT be undone. Requires HELPSCOUT_ENABLE_WRITES=true.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              conversationId: {
+                type: 'string',
+                description: 'The conversation ID to reply to',
+              },
+              text: {
+                type: 'string',
+                description: 'The reply body text (HTML supported)',
+              },
+              customer: {
+                type: 'object',
+                description: 'Customer object with email address',
+                properties: {
+                  email: { type: 'string', description: 'Customer email address' },
+                },
+                required: ['email'],
+              },
+              draft: {
+                type: 'boolean',
+                description: 'Create as draft for human review (default: true). Set to false to send immediately — THIS SENDS A REAL EMAIL.',
+                default: true,
+              },
+              cc: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'CC email addresses',
+              },
+              bcc: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'BCC email addresses',
+              },
+            },
+            required: ['conversationId', 'text', 'customer'],
+          },
+        },
+        {
+          name: 'updateConversationStatus',
+          description: 'Update a conversation\'s status to active, pending, or closed. WARNING: Status changes may trigger Help Scout automations (e.g., satisfaction surveys on close). Requires HELPSCOUT_ENABLE_WRITES=true.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              conversationId: {
+                type: 'string',
+                description: 'The conversation ID to update',
+              },
+              status: {
+                type: 'string',
+                enum: ['active', 'pending', 'closed'],
+                description: 'New status for the conversation',
+              },
+            },
+            required: ['conversationId', 'status'],
+          },
+        },
+        {
+          name: 'createNote',
+          description: 'Add an internal note to a conversation. Notes are only visible to support agents and are NOT sent to the customer. Requires HELPSCOUT_ENABLE_WRITES=true.',
+          inputSchema: {
+            type: 'object' as const,
+            properties: {
+              conversationId: {
+                type: 'string',
+                description: 'The conversation ID to add a note to',
+              },
+              text: {
+                type: 'string',
+                description: 'The note text (HTML supported)',
+              },
+            },
+            required: ['conversationId', 'text'],
+          },
+        },
+      ] : []),
     ];
   }
 
@@ -491,6 +575,15 @@ export class ToolHandler {
           break;
         case 'structuredConversationFilter':
           result = await this.structuredConversationFilter(request.params.arguments || {});
+          break;
+        case 'createReply':
+          result = await this.createReply(request.params.arguments || {});
+          break;
+        case 'updateConversationStatus':
+          result = await this.updateConversationStatus(request.params.arguments || {});
+          break;
+        case 'createNote':
+          result = await this.createNote(request.params.arguments || {});
           break;
         default:
           throw new Error(`Unknown tool: ${request.params.name}`);
@@ -1433,6 +1526,126 @@ export class ToolHandler {
           nextCursor: response._links?.next?.href,
           clientSideFiltering: clientSideFiltered ? `createdBefore filter removed ${originalCount - conversations.length} of ${originalCount} results` : undefined,
           note: 'Structural filtering applied. For content-based search or rep activity, use comprehensiveConversationSearch.',
+        }, null, 2),
+      }],
+    };
+  }
+
+  // --- Write Operations ---
+
+  private checkWritesEnabled(): void {
+    // Check env var directly to support runtime toggling (e.g., in tests)
+    if (process.env.HELPSCOUT_ENABLE_WRITES !== 'true') {
+      throw new Error(
+        'Write operations are disabled. Set HELPSCOUT_ENABLE_WRITES=true to enable reply, note, and status update tools.'
+      );
+    }
+  }
+
+  private async createReply(args: Record<string, unknown>): Promise<CallToolResult> {
+    this.checkWritesEnabled();
+
+    const input = CreateReplyInputSchema.parse(args);
+    const conversationId = input.conversationId;
+
+    logger.info('Creating reply', {
+      conversationId,
+      draft: input.draft,
+      hasCC: !!(input.cc && input.cc.length > 0),
+      hasBCC: !!(input.bcc && input.bcc.length > 0),
+      // Never log the text content for PII safety
+    });
+
+    const requestBody: Record<string, unknown> = {
+      customer: { email: input.customer.email },
+      text: input.text,
+      draft: input.draft,
+    };
+
+    if (input.cc && input.cc.length > 0) {
+      requestBody.cc = input.cc;
+    }
+    if (input.bcc && input.bcc.length > 0) {
+      requestBody.bcc = input.bcc;
+    }
+
+    await helpScoutClient.post(`/conversations/${conversationId}/reply`, requestBody);
+
+    const mode = input.draft ? 'draft' : 'sent';
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          conversationId,
+          action: 'reply_created',
+          mode,
+          message: input.draft
+            ? `Draft reply created on conversation ${conversationId}. A human must review and send it from the Help Scout UI.`
+            : `Reply sent on conversation ${conversationId}. The email has been delivered to the customer.`,
+          warning: input.draft ? undefined : 'This reply has been sent to the customer and cannot be undone.',
+        }, null, 2),
+      }],
+    };
+  }
+
+  private async updateConversationStatus(args: Record<string, unknown>): Promise<CallToolResult> {
+    this.checkWritesEnabled();
+
+    const input = UpdateConversationStatusInputSchema.parse(args);
+    const conversationId = input.conversationId;
+
+    logger.info('Updating conversation status', {
+      conversationId,
+      newStatus: input.status,
+    });
+
+    // Help Scout uses JSON Patch format for updates
+    await helpScoutClient.patch(`/conversations/${conversationId}`, {
+      op: 'replace',
+      path: '/status',
+      value: input.status,
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          conversationId,
+          action: 'status_updated',
+          newStatus: input.status,
+          message: `Conversation ${conversationId} status updated to "${input.status}".`,
+          warning: input.status === 'closed' ? 'Closing a conversation may trigger automations such as satisfaction surveys.' : undefined,
+        }, null, 2),
+      }],
+    };
+  }
+
+  private async createNote(args: Record<string, unknown>): Promise<CallToolResult> {
+    this.checkWritesEnabled();
+
+    const input = CreateNoteInputSchema.parse(args);
+    const conversationId = input.conversationId;
+
+    logger.info('Creating note', {
+      conversationId,
+      // Never log the text content for PII safety
+    });
+
+    await helpScoutClient.post(`/conversations/${conversationId}/notes`, {
+      text: input.text,
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          conversationId,
+          action: 'note_created',
+          message: `Internal note added to conversation ${conversationId}. This note is only visible to support agents.`,
         }, null, 2),
       }],
     };
