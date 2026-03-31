@@ -3,9 +3,9 @@
     "command": "npx",
     "args": ["-y", "help-scout-mcp-server"],
     "env": {
-      "HELPSCOUT_APP_ID": "${HELPSCOUT_APP_ID}",
-      "HELPSCOUT_APP_SECRET": "${HELPSCOUT_APP_SECRET}",
-      "REDACT_MESSAGE_CONTENT": "${REDACT_MESSAGE_CONTENT:-false}"
+      "HELPSCOUT_APP_ID": "${user_config.helpscout_app_id}",
+      "HELPSCOUT_APP_SECRET": "${user_config.helpscout_app_secret}",
+      "REDACT_MESSAGE_CONTENT": "${user_config.redact_message_content}"
     }
   }
 }

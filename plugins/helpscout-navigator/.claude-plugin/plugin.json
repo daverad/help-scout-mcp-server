@@ -16,5 +16,19 @@
     "mcp",
     "customer-service",
     "inbox"
-  ]
+  ],
+  "userConfig": {
+    "helpscout_app_id": {
+      "description": "Help Scout App ID (from My Apps > Your App)",
+      "sensitive": true
+    },
+    "helpscout_app_secret": {
+      "description": "Help Scout App Secret (from My Apps > Your App)",
+      "sensitive": true
+    },
+    "redact_message_content": {
+      "description": "Redact message content for privacy (true/false)",
+      "sensitive": false
+    }
+  }
 }
