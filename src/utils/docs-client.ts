@@ -269,7 +269,28 @@ export class DocsClient {
   }
 
   /**
-   * GET a paginated list of resources.
+   * GET a paginated list of resources, unwrapping the response envelope.
+   * Docs API returns lists as { "collections": { "items": [...], "page": 1, ... } }, etc.
+   */
+  async getList<T>(endpoint: string, key: string, params?: Record<string, unknown>, cacheOptions?: { ttl?: number }): Promise<DocsPaginatedResponse<T>> {
+    const cacheKey = `DOCS:GET:${endpoint}`;
+    const cachedResult = cache.get<DocsPaginatedResponse<T>>(cacheKey, params);
+    if (cachedResult) return cachedResult;
+
+    const response = await this.executeWithRetry<Record<string, DocsPaginatedResponse<T>>>(() =>
+      this.client.get<Record<string, DocsPaginatedResponse<T>>>(endpoint, { params }),
+    );
+
+    const data = response.data[key] || { items: [], page: 0, pages: 0, count: 0 };
+
+    const ttl = cacheOptions?.ttl ?? this.getDefaultCacheTtl(endpoint);
+    cache.set(cacheKey, params, data, { ttl });
+
+    return data;
+  }
+
+  /**
+   * GET a paginated list of resources (raw, no envelope unwrapping).
    */
   async get<T>(endpoint: string, params?: Record<string, unknown>, cacheOptions?: { ttl?: number }): Promise<T> {
     const cacheKey = `DOCS:GET:${endpoint}`;

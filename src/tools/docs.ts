@@ -493,7 +493,7 @@ export class DocsToolHandler {
   private async listSites(args: Record<string, unknown>): Promise<CallToolResult> {
     const input = DocsListSitesInputSchema.parse(args);
     const client = this.getClient();
-    const data = await client.get<DocsPaginatedResponse<DocsSite>>('/sites', {
+    const data = await client.getList<DocsSite>('/sites', 'sites', {
       page: input.page,
     });
     return this.jsonResult({
@@ -520,7 +520,7 @@ export class DocsToolHandler {
     if (input.sort) params.sort = input.sort;
     if (input.order) params.order = input.order;
 
-    const data = await client.get<DocsPaginatedResponse<DocsCollection>>('/collections', params);
+    const data = await client.getList<DocsCollection>('/collections', 'collections', params);
     return this.jsonResult({
       collections: data.items,
       pagination: { page: data.page, pages: data.pages, count: data.count },
@@ -583,8 +583,8 @@ export class DocsToolHandler {
     if (input.sort) params.sort = input.sort;
     if (input.order) params.order = input.order;
 
-    const data = await client.get<DocsPaginatedResponse<DocsCategory>>(
-      `/collections/${input.collectionId}/categories`, params,
+    const data = await client.getList<DocsCategory>(
+      `/collections/${input.collectionId}/categories`, 'categories', params,
     );
     return this.jsonResult({
       categories: data.items,
@@ -657,7 +657,7 @@ export class DocsToolHandler {
       endpoint = `/collections/${input.collectionId}/articles`;
     }
 
-    const data = await client.get<DocsPaginatedResponse<DocsArticleRef>>(endpoint, params);
+    const data = await client.getList<DocsArticleRef>(endpoint, 'articles', params);
     return this.jsonResult({
       articles: data.items,
       pagination: { page: data.page, pages: data.pages, count: data.count },
@@ -686,7 +686,7 @@ export class DocsToolHandler {
     if (input.status) params.status = input.status;
     if (input.visibility) params.visibility = input.visibility;
 
-    const data = await client.get<DocsPaginatedResponse<DocsArticleRef>>('/articles/search', params);
+    const data = await client.getList<DocsArticleRef>('/search/articles', 'articles', params);
     return this.jsonResult({
       articles: data.items,
       pagination: { page: data.page, pages: data.pages, count: data.count },
@@ -697,8 +697,8 @@ export class DocsToolHandler {
   private async getRelatedArticles(args: Record<string, unknown>): Promise<CallToolResult> {
     const input = DocsGetRelatedArticlesInputSchema.parse(args);
     const client = this.getClient();
-    const data = await client.get<DocsPaginatedResponse<DocsArticleRef>>(
-      `/articles/${input.articleId}/related`, { page: input.page },
+    const data = await client.getList<DocsArticleRef>(
+      `/articles/${input.articleId}/related`, 'articles', { page: input.page },
     );
     return this.jsonResult({
       articles: data.items,
@@ -709,8 +709,8 @@ export class DocsToolHandler {
   private async listArticleRevisions(args: Record<string, unknown>): Promise<CallToolResult> {
     const input = DocsListArticleRevisionsInputSchema.parse(args);
     const client = this.getClient();
-    const data = await client.get<DocsPaginatedResponse<DocsRevision>>(
-      `/articles/${input.articleId}/revisions`, { page: input.page },
+    const data = await client.getList<DocsRevision>(
+      `/articles/${input.articleId}/revisions`, 'revisions', { page: input.page },
     );
     return this.jsonResult({
       revisions: data.items,
@@ -778,7 +778,7 @@ export class DocsToolHandler {
   private async listRedirects(args: Record<string, unknown>): Promise<CallToolResult> {
     const input = DocsListRedirectsInputSchema.parse(args);
     const client = this.getClient();
-    const data = await client.get<DocsPaginatedResponse<DocsRedirect>>('/redirects', {
+    const data = await client.getList<DocsRedirect>('/redirects', 'redirects', {
       siteId: input.siteId,
       page: input.page,
     });
