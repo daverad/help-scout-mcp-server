@@ -74,17 +74,24 @@ export class HelpScoutClient {
     maxRetryDelay: 10000, // 10 seconds
     retryCondition: (error: AxiosError) => {
       // Retry on network errors, timeouts, and 5xx responses
-      return !error.response || 
+      return !error.response ||
              error.code === 'ECONNABORTED' ||
              (error.response.status >= 500 && error.response.status < 600) ||
              error.response.status === 429; // Rate limits
     }
   };
 
+  // No-retry config for non-idempotent POST operations (prevent duplicate creates)
+  private noRetryConfig: RetryConfig = {
+    retries: 0,
+    retryDelay: 0,
+    maxRetryDelay: 0,
+  };
+
   constructor(poolConfig: Partial<ConnectionPoolConfig> = {}) {
     // Merge default pool config with any custom settings
     const finalPoolConfig = { ...DEFAULT_POOL_CONFIG, ...poolConfig };
-    
+
     // Create HTTP agents with connection pooling
     this.httpAgent = new HttpAgent({
       keepAlive: finalPoolConfig.keepAlive,
@@ -110,11 +117,11 @@ export class HelpScoutClient {
       httpsAgent: this.httpsAgent,
       // Additional connection optimizations
       maxRedirects: 5,
-      validateStatus: (status) => status < 500, // Don't throw on 4xx errors, handle them in transformError
+      validateStatus: (status) => status >= 200 && status < 300, // Only accept 2xx; non-2xx errors throw as AxiosError for retry logic and transformError
     });
 
     this.setupInterceptors();
-    
+
     logger.info('HTTP connection pool initialized', {
       maxSockets: finalPoolConfig.maxSockets,
       maxFreeSockets: finalPoolConfig.maxFreeSockets,
@@ -139,39 +146,39 @@ export class HelpScoutClient {
     retryConfig: RetryConfig = this.defaultRetryConfig
   ): Promise<AxiosResponse<T>> {
     let lastError: AxiosError | undefined;
-    
+
     for (let attempt = 0; attempt <= retryConfig.retries; attempt++) {
       try {
         return await operation();
       } catch (error) {
         lastError = error as AxiosError;
-        
+
         // Don't retry if it's the last attempt
         if (attempt === retryConfig.retries) {
           break;
         }
-        
+
         // Check if we should retry this error
         if (!retryConfig.retryCondition?.(lastError)) {
           break;
         }
-        
+
         // Handle rate limits specially
         if (lastError.response?.status === 429) {
           const retryAfter = parseInt(lastError.response.headers['retry-after'] || '60', 10) * 1000;
           const delay = Math.min(retryAfter, retryConfig.maxRetryDelay);
-          
+
           logger.warn('Rate limit hit, waiting before retry', {
             attempt: attempt + 1,
             retryAfter: delay,
             requestId: lastError.config?.metadata?.requestId,
           });
-          
+
           await this.sleep(delay);
         } else {
           // Standard exponential backoff
           const delay = this.calculateRetryDelay(attempt, retryConfig.retryDelay, retryConfig.maxRetryDelay);
-          
+
           logger.warn('Request failed, retrying', {
             attempt: attempt + 1,
             totalAttempts: retryConfig.retries + 1,
@@ -180,14 +187,18 @@ export class HelpScoutClient {
             status: lastError.response?.status,
             requestId: lastError.config?.metadata?.requestId,
           });
-          
+
           await this.sleep(delay);
         }
       }
     }
-    
-    // lastError should always be defined here since we only reach this point after catching an error
-    throw lastError || new Error('Request failed without error details');
+
+    // All errors arrive here as raw AxiosError (interceptor passes them through unchanged).
+    // Transform to structured ApiError at this boundary, after all retries are exhausted.
+    if (lastError) {
+      throw this.transformError(lastError);
+    }
+    throw new Error('Request failed without error details');
   }
 
   private setupInterceptors(): void {
@@ -197,16 +208,16 @@ export class HelpScoutClient {
       if (this.accessToken) {
         config.headers.Authorization = `Bearer ${this.accessToken}`;
       }
-      
+
       const requestId = Math.random().toString(36).substring(7);
       config.metadata = { requestId, startTime: Date.now() };
-      
+
       logger.debug('API request', {
         requestId,
         method: config.method?.toUpperCase(),
         url: config.url,
       });
-      
+
       return config;
     });
 
@@ -224,15 +235,18 @@ export class HelpScoutClient {
       (error: AxiosError) => {
         const duration = error.config?.metadata ? Date.now() - error.config.metadata.startTime : 0;
         const requestId = error.config?.metadata?.requestId || 'unknown';
-        
+
         logger.error('API error', {
           requestId,
           status: error.response?.status,
           message: error.message,
           duration,
         });
-        
-        return Promise.reject(this.transformError(error));
+
+        // Pass all errors through as raw AxiosError so executeWithRetry can
+        // inspect .response.status for retry decisions. transformError is called
+        // only after retries are exhausted (in executeWithRetry).
+        return Promise.reject(error);
       }
     );
   }
@@ -332,6 +346,18 @@ export class HelpScoutClient {
       };
     }
 
+    if (error.response?.status === 412) {
+      return {
+        code: 'INVALID_INPUT',
+        message: 'Help Scout precondition failed. The conversation may have reached the 100-thread limit, or a company policy prevents updates to old conversations.',
+        details: {
+          requestId,
+          statusCode: 412,
+          suggestion: 'Check the conversation thread count and company policies in Help Scout settings',
+        },
+      };
+    }
+
     if (error.response?.status === 429) {
       const retryAfter = parseInt(error.response.headers['retry-after'] || '60', 10);
       return {
@@ -409,15 +435,15 @@ export class HelpScoutClient {
   async get<T>(endpoint: string, params?: Record<string, unknown>, cacheOptions?: { ttl?: number }): Promise<T> {
     const cacheKey = `GET:${endpoint}`;
     const cachedResult = cache.get<T>(cacheKey, params);
-    
+
     if (cachedResult) {
       return cachedResult;
     }
 
-    const response = await this.executeWithRetry<T>(() => 
+    const response = await this.executeWithRetry<T>(() =>
       this.client.get<T>(endpoint, { params })
     );
-    
+
     if (cacheOptions?.ttl || cacheOptions?.ttl === 0) {
       cache.set(cacheKey, params, response.data, { ttl: cacheOptions.ttl });
     } else {
@@ -425,13 +451,50 @@ export class HelpScoutClient {
       const defaultTtl = this.getDefaultCacheTtl(endpoint);
       cache.set(cacheKey, params, response.data, { ttl: defaultTtl });
     }
-    
+
     return response.data;
+  }
+
+  /**
+   * POST a new resource. Non-idempotent: retries are disabled to prevent duplicates.
+   */
+  async post<T = void>(endpoint: string, data: Record<string, unknown>): Promise<T> {
+    const response = await this.executeWithRetry<T>(
+      () => this.client.post<T>(endpoint, data),
+      this.noRetryConfig
+    );
+
+    this.invalidateCacheAfterWrite(endpoint);
+    return response.data;
+  }
+
+  /**
+   * PATCH an existing resource. Idempotent: retries are enabled.
+   */
+  async patch<T = void>(endpoint: string, data: Record<string, unknown>): Promise<T> {
+    const response = await this.executeWithRetry<T>(
+      () => this.client.patch<T>(endpoint, data),
+      this.defaultRetryConfig
+    );
+
+    this.invalidateCacheAfterWrite(endpoint);
+    return response.data;
+  }
+
+  /**
+   * Invalidate cache after a write operation to ensure subsequent reads return fresh data.
+   */
+  private invalidateCacheAfterWrite(endpoint: string): void {
+    const match = endpoint.match(/\/conversations\/(\d+)/);
+    if (match) {
+      logger.debug('Invalidating cache after write operation', { endpoint });
+      cache.clear();
+    }
   }
 
   private getDefaultCacheTtl(endpoint: string): number {
     if (endpoint.includes('/conversations')) return 300; // 5 minutes
-    if (endpoint.includes('/mailboxes')) return 1440; // 24 hours
+    if (endpoint.includes('/mailboxes')) return 86400; // 24 hours
     if (endpoint.includes('/threads')) return 300; // 5 minutes
     return 300; // Default 5 minutes
   }
@@ -480,15 +543,15 @@ export class HelpScoutClient {
    */
   async closePool(): Promise<void> {
     logger.info('Closing HTTP connection pool');
-    
+
     // Agent.destroy() is synchronous and immediately closes connections
     // so we don't need to wait for async callbacks
     this.httpAgent.destroy();
     this.httpsAgent.destroy();
-    
+
     // Give a small delay to ensure connections are cleaned up
     await this.sleep(100);
-    
+
     logger.info('All HTTP connections closed');
   }
 
@@ -497,11 +560,11 @@ export class HelpScoutClient {
    */
   clearIdleConnections(): void {
     const stats = this.getPoolStats();
-    
+
     // Force destroy all agent connections by recreating them
     this.httpAgent.destroy();
     this.httpsAgent.destroy();
-    
+
     // Recreate agents with same configuration
     const poolConfig = {
       keepAlive: true,
@@ -510,11 +573,15 @@ export class HelpScoutClient {
       maxFreeSockets: 10,
       timeout: 30000,
     };
-    
+
     this.httpAgent = new HttpAgent(poolConfig);
     this.httpsAgent = new HttpsAgent(poolConfig);
 
-    logger.debug('Cleared idle connections', { 
+    // Update Axios instance to use the new agents
+    this.client.defaults.httpAgent = this.httpAgent;
+    this.client.defaults.httpsAgent = this.httpsAgent;
+
+    logger.debug('Cleared idle connections', {
       clearedHttp: stats.http.freeSockets,
       clearedHttps: stats.https.freeSockets,
     });
