@@ -439,8 +439,11 @@ export class HelpScoutClient {
   }
 
   async post<T = void>(endpoint: string, data: Record<string, unknown>): Promise<T> {
-    const response = await this.executeWithRetry<T>(() =>
-      this.client.post<T>(endpoint, data)
+    // POST is not idempotent — never retry to prevent duplicate creates (emails, notes, conversations)
+    const noRetryConfig: RetryConfig = { retries: 0, retryDelay: 0, maxRetryDelay: 0 };
+    const response = await this.executeWithRetry<T>(
+      () => this.client.post<T>(endpoint, data),
+      noRetryConfig
     );
 
     this.checkResponseStatus(response);
