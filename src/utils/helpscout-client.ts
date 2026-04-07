@@ -467,7 +467,7 @@ export class HelpScoutClient {
    * Invalidate cache after a write operation to ensure subsequent reads return fresh data.
    */
   private invalidateCacheAfterWrite(endpoint: string): void {
-    const match = endpoint.match(/\/conversations\/(\d+)/);
+    const match = endpoint.match(/\/conversations/);
     if (match) {
       logger.debug('Invalidating cache after write operation', { endpoint });
       cache.clear();
