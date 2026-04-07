@@ -2,15 +2,20 @@
 
 [![npm version](https://badge.fury.io/js/help-scout-mcp-server.svg)](https://badge.fury.io/js/help-scout-mcp-server) [![Docker](https://img.shields.io/docker/v/drewburchfield/help-scout-mcp-server?logo=docker&label=docker)](https://hub.docker.com/r/drewburchfield/help-scout-mcp-server) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/drewburchfield/help-scout-mcp-server) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-An [MCP server](https://modelcontextprotocol.io) that gives AI assistants direct access to your Help Scout inboxes, conversations, and threads. Search tickets, pull context, spot patterns, and get answers without leaving your editor or chat window.
+An [MCP server](https://modelcontextprotocol.io) that gives AI assistants direct access to your Help Scout inboxes, conversations, customers, organizations, and threads. Search tickets, manage customers, create draft replies, and get answers without leaving your editor or chat window.
 
 Built by a Help Scout customer who wanted to give his support team superpowers. If you handle customer conversations in Help Scout and want AI to help you work faster, this is for you.
 
 ## What You Can Do
 
 - **Search conversations** by keyword, date range, status, tag, email domain, or ticket number
+- **Look up customers** by name, email, or organization
+- **Browse organizations** and their members and conversation history
 - **Pull full thread history** into context before drafting a reply
 - **Get conversation summaries** with the original customer message and latest staff response
+- **Create draft replies** for human review before sending
+- **Add internal notes** and manage conversation status
+- **Create and assign conversations** to team members
 - **Monitor inbox activity** across multiple inboxes with a single query
 - **Stay compliant** with optional PII redaction and scoped inbox access
 
@@ -87,9 +92,9 @@ docker run -e HELPSCOUT_APP_ID="your-app-id" \
 
 Alternative names `HELPSCOUT_CLIENT_ID` / `HELPSCOUT_CLIENT_SECRET` and legacy `HELPSCOUT_API_KEY` are also supported.
 
-## Tools
+## Tools (24 total)
 
-### Which tool should I use?
+### Conversation Tools
 
 | Task | Tool | Example |
 |------|------|---------|
@@ -100,6 +105,20 @@ Alternative names `HELPSCOUT_CLIENT_ID` / `HELPSCOUT_CLIENT_SECRET` and legacy `
 | Quick conversation overview | `getConversationSummary` | "Summarize this conversation" |
 | Full message history | `getThreads` | "Show me the complete thread" |
 | Current server time | `getServerTime` | Used for time-relative searches |
+| List inboxes | `searchInboxes` / `listAllInboxes` | "What inboxes are available?" |
+
+### Customer & Organization Tools
+
+| Task | Tool | Example |
+|------|------|---------|
+| Get customer profile | `getCustomer` | "Look up customer 12345" |
+| Search customers | `listCustomers` | "Find customers named Smith" |
+| Find by email | `searchCustomersByEmail` | "Find customer with email john@acme.com" |
+| Get contact details | `getCustomerContacts` | "Get all contact info for customer 12345" |
+| Get organization | `getOrganization` | "Show me organization 789" |
+| List organizations | `listOrganizations` | "List all organizations by activity" |
+| Organization members | `getOrganizationMembers` | "Who is in organization 789?" |
+| Organization conversations | `getOrganizationConversations` | "Show conversations for org 789" |
 
 ### Write Tools (Opt-in)
 
@@ -108,14 +127,20 @@ These tools require `HELPSCOUT_ENABLE_WRITES=true` and are hidden when writes ar
 | Task | Tool | Example |
 |------|------|---------|
 | Reply to a conversation | `createReply` | "Draft a reply to ticket #123" |
-| Change ticket status | `updateConversationStatus` | "Close ticket #123" |
 | Add internal note | `createNote` | "Add a note to ticket #123" |
+| Change ticket status | `updateConversationStatus` | "Close ticket #123" |
+| Create new conversation | `createConversation` | "Create a draft ticket for john@acme.com" |
+| Assign to team member | `assignConversation` | "Assign ticket #123 to user 456" |
+| List team members | `listUsers` | "Who can I assign tickets to?" |
+| List mailboxes | `listMailboxes` | "Which mailbox should I create the ticket in?" |
 
 **Safety defaults:**
-- `createReply` defaults to **draft mode** (`draft: true`). Drafts must be manually sent from the Help Scout UI.
+- `HELPSCOUT_ENABLE_WRITES` defaults to **`false`**. Write tools are completely hidden until explicitly enabled.
+- `createReply` and `createConversation` default to **draft mode** (`draft: true`). Drafts must be manually sent from the Help Scout UI.
 - Setting `draft: false` sends a real email immediately and **cannot be undone**.
 - `createNote` creates internal notes only visible to support agents, never sent to customers.
 - Status changes may trigger Help Scout automations (e.g., satisfaction surveys on close).
+- POST operations (creates) do not retry to prevent duplicate records.
 
 Inboxes are auto-discovered when the server connects. AI agents get inbox IDs in their instructions automatically, so no lookup step is needed.
 
