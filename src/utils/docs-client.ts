@@ -311,13 +311,14 @@ export class DocsClient {
    * GET a single resource, unwrapping the response envelope.
    * Docs API returns single resources as { "article": {...} }, { "collection": {...} }, etc.
    */
-  async getOne<T>(endpoint: string, key: string, cacheOptions?: { ttl?: number }): Promise<T> {
+  async getOne<T>(endpoint: string, key: string, params?: Record<string, unknown>, cacheOptions?: { ttl?: number }): Promise<T> {
     const cacheKey = `DOCS:GET:${endpoint}`;
-    const cachedResult = cache.get<T>(cacheKey, { key });
+    const cacheData = { key, ...params };
+    const cachedResult = cache.get<T>(cacheKey, cacheData);
     if (cachedResult) return cachedResult;
 
     const response = await this.executeWithRetry<Record<string, T>>(() =>
-      this.client.get<Record<string, T>>(endpoint),
+      this.client.get<Record<string, T>>(endpoint, { params }),
     );
 
     const data = response.data[key];
@@ -330,7 +331,7 @@ export class DocsClient {
     }
 
     const ttl = cacheOptions?.ttl ?? this.getDefaultCacheTtl(endpoint);
-    cache.set(cacheKey, { key }, data, { ttl });
+    cache.set(cacheKey, cacheData, data, { ttl });
 
     return data;
   }

@@ -670,7 +670,7 @@ export class DocsToolHandler {
     const params: Record<string, unknown> = {};
     if (input.draft) params.draft = true;
 
-    const article = await client.getOne<DocsArticle>(`/articles/${input.articleId}`, 'article');
+    const article = await client.getOne<DocsArticle>(`/articles/${input.articleId}`, 'article', params);
     return this.jsonResult({ article });
   }
 
