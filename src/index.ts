@@ -15,6 +15,8 @@ import { logger } from './utils/logger.js';
 import { helpScoutClient, type PaginatedResponse } from './utils/helpscout-client.js';
 import { resourceHandler } from './resources/index.js';
 import { toolHandler } from './tools/index.js';
+import { docsToolHandler } from './tools/docs.js';
+import { docsClient } from './utils/docs-client.js';
 import { promptHandler } from './prompts/index.js';
 import type { Inbox } from './schema/types.js';
 
@@ -112,7 +114,25 @@ ${config.writes.enabled ? `
 - **createReply defaults to draft=true** — drafts must be sent manually from Help Scout UI
 - Setting draft=false sends a real email immediately and CANNOT be undone
 - Notes are internal only and never visible to customers
-- Status changes may trigger Help Scout automations` : ''}`;
+- Status changes may trigger Help Scout automations` : ''}
+${config.docs ? `
+## Docs API (Knowledge Base)
+| Task | Tool |
+|------|------|
+| Browse KB structure | docs_listCollections → docs_listCategories |
+| Find articles | docs_searchArticles or docs_listArticles |
+| Read article content | docs_getArticle |
+| Check article history | docs_listArticleRevisions → docs_getArticleRevision |
+| List Docs sites | docs_listSites |
+${config.writes.enabled ? `
+### Docs Write Tools (ENABLED)
+| Task | Tool |
+|------|------|
+| Create/update articles | docs_createArticle / docs_updateArticle |
+| Manage collections | docs_createCollection / docs_updateCollection |
+| Manage categories | docs_createCategory / docs_updateCategory |
+| Manage redirects | docs_createRedirect / docs_updateRedirect |
+| Delete resources | docs_deleteArticle / docs_deleteCollection / docs_deleteCategory` : ''}` : ''}`;
 
 
       logger.info('Inbox discovery successful', { inboxCount: inboxes.length });
@@ -161,8 +181,10 @@ Note: Inbox auto-discovery failed (${safeError}). Use listAllInboxes tool to see
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       logger.debug('Listing tools');
       try {
+        const coreTools = await toolHandler.listTools();
+        const docsTools = docsToolHandler ? await docsToolHandler.listTools() : [];
         return {
-          tools: await toolHandler.listTools(),
+          tools: [...coreTools, ...docsTools],
         };
       } catch (error) {
         logger.error('Error listing tools', { error: error instanceof Error ? error.message : String(error) });
@@ -171,10 +193,14 @@ Note: Inbox auto-discovery failed (${safeError}). Use listAllInboxes tool to see
     });
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      logger.debug('Calling tool', { 
-        name: request.params.name, 
-        arguments: request.params.arguments 
+      logger.debug('Calling tool', {
+        name: request.params.name,
+        arguments: request.params.arguments
       });
+      // Route docs_* tools to the Docs handler
+      if (request.params.name.startsWith('docs_') && docsToolHandler) {
+        return await docsToolHandler.callTool(request);
+      }
       return await toolHandler.callTool(request);
     });
 
@@ -247,9 +273,10 @@ Note: Inbox auto-discovery failed (${safeError}). Use listAllInboxes tool to see
       // Close the MCP server
       await this.server.close();
       
-      // Close HTTP connection pool
+      // Close HTTP connection pools
       await helpScoutClient.closePool();
-      
+      if (docsClient) await docsClient.closePool();
+
       logger.info('Help Scout MCP Server stopped');
     } catch (error) {
       logger.error('Error stopping server', { 

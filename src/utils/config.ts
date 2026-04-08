@@ -13,6 +13,10 @@ export interface Config {
     baseUrl: string;
     defaultInboxId?: string; // Optional: default inbox for scoped searches
   };
+  docs?: {
+    apiKey: string;          // Docs API key (HTTP Basic Auth)
+    baseUrl: string;         // Docs API base URL
+  };
   cache: {
     ttlSeconds: number;
     maxSize: number;
@@ -59,6 +63,10 @@ export const config: Config = {
   writes: {
     enabled: process.env.HELPSCOUT_ENABLE_WRITES === 'true',
   },
+  docs: process.env.HELPSCOUT_DOCS_API_KEY ? {
+    apiKey: process.env.HELPSCOUT_DOCS_API_KEY,
+    baseUrl: process.env.HELPSCOUT_DOCS_BASE_URL || 'https://docsapi.helpscout.net/v1',
+  } : undefined,
   connectionPool: {
     maxSockets: parseInt(process.env.HTTP_MAX_SOCKETS || '50', 10),
     maxFreeSockets: parseInt(process.env.HTTP_MAX_FREE_SOCKETS || '10', 10),
@@ -110,5 +118,19 @@ export function validateConfig(): void {
       `Current value: ${config.helpscout.baseUrl}\n` +
       'Please use: https://api.helpscout.net/v2/'
     );
+  }
+
+  // Log Docs API status
+  if (config.docs) {
+    console.error('Help Scout Docs API ENABLED (HELPSCOUT_DOCS_API_KEY is set)');
+
+    // Enforce HTTPS for Docs API base URL
+    if (!config.docs.baseUrl.startsWith('https://')) {
+      throw new Error(
+        'Security Error: HELPSCOUT_DOCS_BASE_URL must use HTTPS to protect credentials in transit.\n' +
+        `Current value: ${config.docs.baseUrl}\n` +
+        'Please use: https://docsapi.helpscout.net/v1'
+      );
+    }
   }
 }
