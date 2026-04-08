@@ -2,7 +2,7 @@
 
 [![npm version](https://badge.fury.io/js/help-scout-mcp-server.svg)](https://badge.fury.io/js/help-scout-mcp-server) [![Docker](https://img.shields.io/docker/v/drewburchfield/help-scout-mcp-server?logo=docker&label=docker)](https://hub.docker.com/r/drewburchfield/help-scout-mcp-server) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/drewburchfield/help-scout-mcp-server) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-An [MCP server](https://modelcontextprotocol.io) that gives AI assistants direct access to your Help Scout inboxes, conversations, customers, organizations, and threads. Search tickets, manage customers, create draft replies, and get answers without leaving your editor or chat window.
+An [MCP server](https://modelcontextprotocol.io) that gives AI assistants direct access to your Help Scout inboxes, conversations, customers, organizations, threads, and **knowledge base (Docs)**. Search tickets, manage customers, create draft replies, browse and manage KB articles, and get answers without leaving your editor or chat window.
 
 Built by a Help Scout customer who wanted to give his support team superpowers. If you handle customer conversations in Help Scout and want AI to help you work faster, this is for you.
 
@@ -16,6 +16,8 @@ Built by a Help Scout customer who wanted to give his support team superpowers. 
 - **Create draft replies** for human review before sending
 - **Add internal notes** and manage conversation status
 - **Create and assign conversations** to team members
+- **Browse and search knowledge base articles** from Help Scout Docs
+- **Create, update, and manage KB content** including articles, collections, and categories
 - **Monitor inbox activity** across multiple inboxes with a single query
 - **Stay compliant** with optional PII redaction and scoped inbox access
 
@@ -61,7 +63,9 @@ Add to your MCP client's config file (e.g., `claude_desktop_config.json`, `.curs
       "args": ["help-scout-mcp-server"],
       "env": {
         "HELPSCOUT_APP_ID": "your-app-id",
-        "HELPSCOUT_APP_SECRET": "your-app-secret"
+        "HELPSCOUT_APP_SECRET": "your-app-secret",
+        "HELPSCOUT_DOCS_API_KEY": "your-docs-api-key",
+        "HELPSCOUT_ENABLE_WRITES": "true"
       }
     }
   }
@@ -78,6 +82,8 @@ docker run -e HELPSCOUT_APP_ID="your-app-id" \
 
 ## Getting Your API Credentials
 
+### Conversations API (OAuth2)
+
 1. Go to **Help Scout** > **My Apps** > **Create Private App**
 2. Select at minimum: **Read** access to Mailboxes and Conversations
 3. For write tools: also grant **Write** access to Conversations
@@ -92,7 +98,17 @@ docker run -e HELPSCOUT_APP_ID="your-app-id" \
 
 Alternative names `HELPSCOUT_CLIENT_ID` / `HELPSCOUT_CLIENT_SECRET` and legacy `HELPSCOUT_API_KEY` are also supported.
 
-## Tools (24 total)
+### Docs API (Knowledge Base)
+
+The Docs API uses a separate API key (not OAuth2).
+
+1. Go to **Help Scout** > **Manage** > **API Keys**
+2. Generate or copy your Docs API key
+3. Set it as `HELPSCOUT_DOCS_API_KEY`
+
+> The Docs API key is optional. Without it, the server works normally but Docs tools won't appear. Both credential types can be used together.
+
+## Tools (up to 49 total)
 
 ### Conversation Tools
 
@@ -144,15 +160,60 @@ These tools require `HELPSCOUT_ENABLE_WRITES=true` and are hidden when writes ar
 
 Inboxes are auto-discovered when the server connects. AI agents get inbox IDs in their instructions automatically, so no lookup step is needed.
 
+### Docs API Tools (Opt-in)
+
+These tools require `HELPSCOUT_DOCS_API_KEY` to be set. They use Help Scout's separate [Docs API](https://developer.helpscout.com/docs-api/) for knowledge base management.
+
+#### Docs Read Tools
+
+| Task | Tool | Example |
+|------|------|---------|
+| List KB collections | `docs_listCollections` | "Show me all knowledge base collections" |
+| Get collection details | `docs_getCollection` | "Get details for collection abc123" |
+| List categories | `docs_listCategories` | "What categories are in this collection?" |
+| Get category details | `docs_getCategory` | "Get category info" |
+| List articles | `docs_listArticles` | "Show articles in this collection" |
+| Get article content | `docs_getArticle` | "Get the full article with HTML content" |
+| Search articles | `docs_searchArticles` | "Find KB articles about password reset" |
+| Get related articles | `docs_getRelatedArticles` | "What articles are related to this one?" |
+| List article revisions | `docs_listArticleRevisions` | "Show revision history for this article" |
+| Get a specific revision | `docs_getArticleRevision` | "Get revision xyz of this article" |
+| List Docs sites | `docs_listSites` | "Show me all Docs sites" |
+| Get site details | `docs_getSite` | "Get details for site abc" |
+| List URL redirects | `docs_listRedirects` | "Show redirects for this site" |
+
+#### Docs Write Tools
+
+These additionally require `HELPSCOUT_ENABLE_WRITES=true`.
+
+| Task | Tool | Example |
+|------|------|---------|
+| Create collection | `docs_createCollection` | "Create a new KB collection" |
+| Update collection | `docs_updateCollection` | "Rename the collection" |
+| Delete collection | `docs_deleteCollection` | "Delete the empty collection" |
+| Create category | `docs_createCategory` | "Add a category to this collection" |
+| Update category | `docs_updateCategory` | "Rename the category" |
+| Delete category | `docs_deleteCategory` | "Remove this category" |
+| Create article | `docs_createArticle` | "Create a new KB article about returns" |
+| Update article | `docs_updateArticle` | "Update the article content" |
+| Delete article | `docs_deleteArticle` | "Delete the outdated article" |
+| Create redirect | `docs_createRedirect` | "Add a redirect from old URL to new" |
+| Update redirect | `docs_updateRedirect` | "Update the redirect destination" |
+| Delete redirect | `docs_deleteRedirect` | "Remove this redirect" |
+
+**Docs API authentication:** The Docs API uses a separate API key with HTTP Basic Auth, independent from the OAuth2 credentials used for conversations. Get your Docs API key from **Help Scout > Manage > API Keys**.
+
 ## Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `HELPSCOUT_APP_ID` | App ID from Help Scout My Apps | Required |
 | `HELPSCOUT_APP_SECRET` | App Secret from Help Scout My Apps | Required |
+| `HELPSCOUT_DOCS_API_KEY` | Docs API key for knowledge base access | None (Docs tools disabled) |
 | `HELPSCOUT_DEFAULT_INBOX_ID` | Scope searches to a specific inbox | None (all inboxes) |
 | `HELPSCOUT_BASE_URL` | Help Scout API endpoint | `https://api.helpscout.net/v2/` |
-| `HELPSCOUT_ENABLE_WRITES` | Enable write tools (reply, note, status update) | `false` |
+| `HELPSCOUT_DOCS_BASE_URL` | Docs API endpoint | `https://docsapi.helpscout.net/v1` |
+| `HELPSCOUT_ENABLE_WRITES` | Enable write tools (conversations + Docs) | `false` |
 | `REDACT_MESSAGE_CONTENT` | Hide message bodies in responses | `false` |
 | `CACHE_TTL_SECONDS` | Cache duration for API responses | `300` |
 | `LOG_LEVEL` | Logging verbosity (`error`, `warn`, `info`, `debug`) | `info` |
